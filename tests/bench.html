@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>BehindTheDoor reader timing</title>
+  <style>
+    body { font: 13px/1.4 system-ui, sans-serif; margin: 16px; }
+    iframe { width: 1100px; height: 700px; border: 0; position: absolute; left: -9999px; }
+    td, th { padding: 3px 8px; text-align: right; } td:first-child, th:first-child { text-align: left; }
+  </style>
+</head>
+<body>
+  <h1>How long the reader takes</h1>
+  <p>Each test page is read 9 times, from a fresh layout each time; the table shows the median. "big" pages repeat the search results
+     500 times around the listing, like a long Zillow or Facebook page.</p>
+  <table id="out"><tr><th>page</th><th>before: median ms</th><th>now: median ms</th></tr></table>
+  <script src="../src/extractor.js"></script>
+  <script>
+    const PAGES = [
+      ['zillow-pines.html', 'www.zillow.com'],
+      ['apartments-building.html', 'www.apartments.com'],
+      ['property-site.html', 'www.station21wl.com'],
+      ['facebook-group-post.html', 'www.facebook.com', '/groups/1/posts/2/'],
+      ['craigslist-biweekly.html', 'www.craigslist.org'],
+      ['zillow-pines.html', 'www.zillow.com', '', 'big'],
+      ['facebook.html', 'www.facebook.com', '/marketplace/item/1/', 'big'],
+      ['property-slogan.html', 'www.thelandingwl.com', '', 'big'],
+    ];
+    const RUNS = 9;
+    const load = (file) => new Promise((res) => { const f = document.createElement('iframe'); f.onload = () => res(f); f.src = 'fixtures/' + file; document.body.appendChild(f); });
+
+    (async () => {
+      const out = document.getElementById('out');
+      // An older reader to compare with, if one is saved locally.
+      let OLD = '';
+      try {
+        const r = await fetch('live-snapshots/extractor-old.js', { cache: 'no-store' });
+        if (r.ok) OLD = (await r.text()).match(/async function btdExtractListing[\s\S]*\n}\s*$/)[0];
+      } catch (e) {
+        OLD = '';
+      }
+      const results = {};
+      for (const [file, host, path, big] of PAGES) {
+        const f = await load(file);
+        const d = f.contentDocument;
+        if (big) {
+          // 500 result cards next to the listing.
+          const box = d.createElement('section');
+          for (let i = 0; i < 500; i++) {
+            const card = d.createElement('div');
+            card.innerHTML = '<p>$' + (900 + i) + '+ Fees may apply</p><p>Example Apartments ' + i + ' | ' + (100 + i) + ' Example St, West Lafayette, IN</p><p>$' + (800 + i) + '+ 1bd · $' + (1100 + i) + '+ 2bd</p><button>Check availability</button>';
+            box.appendChild(card);
+          }
+          d.body.appendChild(box);
+        }
+        const loc = { hostname: host, href: 'https://' + host + (path || '/listing') };
+        // Each run starts from a fresh layout, as on a first click.
+        const time = async (src) => {
+          const run = new f.contentWindow.Function('location', 'return (' + src + ')();');
+          const times = [];
+          for (let i = 0; i < RUNS; i++) {
+            f.style.width = (1100 + (i % 2)) + 'px';
+            d.body.style.paddingTop = (i % 2) + 'px';
+            const t0 = performance.now();
+            await run(loc);
+            times.push(performance.now() - t0);
+          }
+          times.sort((a, b) => a - b);
+          return +times[RUNS >> 1].toFixed(2);
+        };
+        const name = file + (big ? ' (big)' : '');
+        results[name] = { before: OLD ? await time(OLD) : null, now: await time(btdExtractListing.toString()) };
+        const tr = document.createElement('tr');
+        for (const v of [name, results[name].before, results[name].now]) { const td = document.createElement('td'); td.textContent = v; tr.appendChild(td); }
+        out.appendChild(tr);
+        f.remove();
+      }
+      window.__bench = results;
+      document.title = 'DONE';
+    })();
+  </script>
+</body>
+</html>

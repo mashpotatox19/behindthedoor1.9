@@ -1,0 +1,337 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>BehindTheDoor extractor tests</title>
+  <style>
+    body { font: 14px/1.4 system-ui, sans-serif; margin: 16px; }
+    .pass { color: #16794c; } .fail { color: #b3261e; font-weight: 700; }
+    iframe { display: block; width: 900px; height: 0; border: 0; }
+    pre { background: #f4f4f4; padding: 8px; overflow: auto; }
+  </style>
+</head>
+<body>
+  <h1>Extractor tests</h1>
+  <p>Serve the repository root over http (for example <code>python3 -m http.server 8765 --bind 127.0.0.1</code>)
+     and open <code>/tests/extractor.html</code>. Each fixture is loaded in a frame and read with a fake hostname.</p>
+  <div id="out"></div>
+  <script src="../src/extractor.js"></script>
+  <script src="../src/analyzer.js"></script>
+  <script>
+    const CASES = [
+      {
+        file: 'craigslist.html', host: 'lafayette.craigslist.org',
+        expect: (r, a) => ({
+          source: r.source === 'craigslist',
+          title: r.title === 'Charming 2BR near campus, utilities included',
+          price: r.priceAmount === 550,
+          location: r.location === '123 Example St, West Lafayette, IN',
+          beds: r.beds === 2,
+          description: /mission trip/.test(r.description) && !/QR Code/.test(r.description),
+          scope: r.scope === 'description',
+          listing: r.isListing === true,
+          highConcern: a.level.key === 'high',
+        }),
+      },
+      {
+        file: 'jsonld.html', host: 'www.zillow.com',
+        expect: (r, a) => ({
+          source: r.source === 'zillow',
+          title: r.title === '1201 Example Ave #4',
+          price: r.priceAmount === 1195 && r.pricePeriod === 'month',
+          location: /Lafayette, IN 47904/.test(r.location),
+          beds: r.beds === 2,
+          scope: r.scope === 'description',
+          lister: r.listerName === 'Example Property Group',
+          photo: r.photoUrl === 'https://photos.example.com/listing-1201.jpg',
+          ignoresFeesTableAndOtherAds: !/Western Union|Application fee/.test(r.fullText),
+          noFlags: a.flags.length === 0,
+        }),
+      },
+      {
+        file: 'facebook.html', host: 'www.facebook.com', path: '/marketplace/item/123/',
+        expect: (r, a) => ({
+          source: r.source === 'facebook',
+          title: r.title === '2 Beds 1 Bath Apartment',
+          price: r.priceAmount === 500 && r.pricePeriod === 'month',
+          location: r.location === '456 Sample Rd, Lafayette, IN',
+          joined: r.sellerJoinedYear === 2026,
+          lister: r.listerName === 'Jordan Example',
+          beds: r.beds === 2,
+          cutAtTodaysPicks: !/gift cards/.test(r.fullText),
+          flags: ['off-platform-contact', 'viewing-restrictions', 'landlord-away', 'low-price', 'new-account']
+            .every((id) => a.flags.some((f) => f.id === id)),
+        }),
+      },
+      {
+        file: 'generic.html', host: 'www.maplecourt.example',
+        expect: (r, a) => ({
+          source: r.source === 'web',
+          title: r.title === 'Maple Court Apartments – Unit 3B',
+          price: r.priceAmount === 1050 && r.pricePeriod === 'month',
+          studio: r.beds === 0,
+          description: /walking distance of campus/.test(r.description),
+          scope: r.scope === 'description',
+          noFlags: a.flags.length === 0,
+        }),
+      },
+      {
+        // A listing opened over Zillow search results: read the open listing,
+        // never the first search result in the page's structured data.
+        file: 'zillow-overlay.html', host: 'www.zillow.com',
+        expect: (r) => ({
+          title: r.title === 'Cheswick Village',
+          location: r.location === '3422 Cheswick Ct, West Lafayette, IN 47906',
+          street: r.hasStreetAddress === true,
+          price: r.priceAmount === 1300 && r.priceHigh === 2400,
+          beds: r.beds === 1 && r.bedsMax === 3,
+          wholeUnits: r.perPerson === false,
+          notTheFirstResult: !/Vine/i.test(JSON.stringify(r)),
+          listing: r.isListing === true,
+        }),
+      },
+      {
+        // The same listing in a plain panel beside the results (no dialog role).
+        file: 'zillow-panel.html', host: 'www.zillow.com',
+        expect: (r) => ({
+          title: r.title === 'Cheswick Village',
+          location: r.location === '3422 Cheswick Ct, West Lafayette, IN 47906',
+          price: r.priceAmount === 1300 && r.priceHigh === 2400,
+          beds: r.beds === 1 && r.bedsMax === 3,
+          notTheResults: !/Lumen|Aviada|Vine/i.test(r.fullText + r.description),
+          listing: r.isListing === true,
+        }),
+      },
+      {
+        // Apartments.com: the building's name, address and rent sit in a <header>.
+        file: 'apartments-building.html', host: 'www.apartments.com',
+        expect: (r, a) => ({
+          title: r.title === 'Station 21',
+          location: r.location === '2110 McCormick Rd, West Lafayette, IN 47906',
+          price: r.priceAmount === 595 && r.priceHigh === 820,
+          beds: r.beds === 2 && r.bedsMax === 4,
+          perPerson: r.perPerson === true,
+          listing: r.isListing === true,
+          noLowPriceFlag: !a.flags.some((f) => f.id === 'low-price'),
+        }),
+      },
+      {
+        // A property's own website: the page heading is "Floor Plans", the
+        // address is only in the footer, with no comma before the city.
+        file: 'property-site.html', host: 'www.station21wl.com',
+        expect: (r) => ({
+          title: r.title === 'Station 21',
+          location: /^2110 McCormick Road/.test(r.location),
+          street: r.hasStreetAddress === true,
+          price: r.priceAmount === 595 && r.priceHigh === 820 && r.pricePeriod === 'month',
+          beds: r.beds === 2 && r.bedsMax === 4,
+          // The 4-bed plan costs less than the 2-bed: priced per bedroom.
+          perPerson: r.perPerson === true,
+          listing: r.isListing === true,
+        }),
+      },
+      {
+        file: 'facebook-room.html', host: 'www.facebook.com', path: '/marketplace/item/456/',
+        expect: (r, a) => ({
+          room: r.isRoom === true,
+          price: r.priceAmount === 875,
+          location: r.location === 'West Lafayette, IN',
+          areaOnly: r.hasStreetAddress === false,
+          streetHint: r.streetHint === 'Stratus Dr',
+          noFlags: a.flags.length === 0,
+        }),
+      },
+      {
+        // Craigslist's 2026 layout: the map gives only the street, the title
+        // starts with the address, and the rent is paid every two weeks.
+        file: 'craigslist-biweekly.html', host: 'www.craigslist.org',
+        expect: (r) => ({
+          location: r.location === '525 N 9TH STREET, Lafayette, IN 47901',
+          street: r.hasStreetAddress === true,
+          price: r.priceAmount === 450 && r.pricePeriod === '2 weeks',
+          beds: r.beds === 1,
+          pin: Math.abs(r.lat - 40.4235) < 1e-6 && Math.abs(r.lon + 86.8902) < 1e-6,
+          wholeUnit: r.isRoom === false && r.perPerson === false,
+        }),
+      },
+      {
+        // A roommate post with no street: "google map" is not an address.
+        file: 'craigslist-roommate.html', host: 'www.craigslist.org',
+        expect: (r, a) => ({
+          room: r.isRoom === true,
+          location: r.location === 'West Lafayette, IN 47907',
+          areaOnly: r.hasStreetAddress === false,
+          price: r.priceAmount === 825 && r.pricePeriod === 'month',
+          notPerPerson: r.perPerson === false,
+          pin: r.lat != null,
+          zeroFeeIsNotAFee: !a.flags.some((f) => f.id === 'upfront-fee'),
+        }),
+      },
+      {
+        // Zillow, The Pines: 4-bed $499 is per person (individual leases);
+        // a Gift card offer in the banner is not a payment demand.
+        file: 'zillow-pines.html', host: 'www.zillow.com',
+        expect: (r, a) => ({
+          title: r.title === 'The Pines',
+          perPerson: r.perPerson === true,
+          beds: r.beds === 3 && r.bedsMax === 4,
+          price: r.priceAmount === 499 && r.priceHigh === 1980,
+          noGiftCardFlag: !a.flags.some((f) => f.id === 'untraceable-payment'),
+        }),
+      },
+      {
+        // Zillow, University Crossing: the units' base rent, not the data's total.
+        file: 'zillow-units.html', host: 'www.zillow.com',
+        expect: (r) => ({
+          price: r.priceAmount === 950 && r.priceHigh === 975,
+          beds: r.beds === 1,
+          notTheResults: !/Lumen|Blackbird/.test(r.fullText),
+        }),
+      },
+      {
+        // One Facebook group post opened on its own.
+        file: 'facebook-group-post.html', host: 'www.facebook.com', path: '/groups/123/posts/456/',
+        expect: (r, a) => ({
+          listing: r.isListing === true,
+          title: /^Hey everyone/.test(r.title),
+          price: r.priceAmount === 900 && r.pricePeriod === 'month',
+          room: r.isRoom === true,
+          place: r.location === 'West Lafayette, IN',
+          lister: r.listerName === 'Riley Example',
+          commentsNotRead: !/Zelle/.test(r.fullText) && !a.flags.some((f) => f.id === 'p2p-payment'),
+        }),
+      },
+      {
+        // A Facebook group's feed: many posts, open one.
+        file: 'facebook-group-feed.html', host: 'www.facebook.com', path: '/groups/123/',
+        expect: (r) => ({ feed: r.isFeed === true, notAListing: r.isListing === false }),
+      },
+      {
+        // The Landing: a slogan heading, plans outside <main>, "$1,490.00 to $1,575.00".
+        file: 'property-slogan.html', host: 'www.thelandingwl.com',
+        expect: (r) => ({
+          title: r.title === 'The Landing',
+          price: r.priceAmount === 1490 && r.priceHigh === 1695,
+          location: r.location === '325 Brown St, West Lafayette, IN 47906',
+          beds: r.beds === 0 && r.bedsMax === 1,
+        }),
+      },
+      {
+        // Airbnb: "$524 for 5 nights" is $105 a night; the town is named, not the street.
+        file: 'airbnb.html', host: 'www.airbnb.com',
+        expect: (r) => ({
+          shortStay: r.shortStay === true,
+          price: r.priceAmount === 105 && r.pricePeriod === 'night',
+          place: r.location === 'Lafayette, IN',
+          noStreet: r.hasStreetAddress === false,
+          listing: r.isListing === true,
+        }),
+      },
+      {
+        // Apartments.com, per-bed building: renters' reviews are not read,
+        // the site's fee table is not a warning, the map pin is in the tags.
+        file: 'apartments-perbed.html', host: 'www.apartments.com',
+        expect: (r, a) => ({
+          title: r.title === 'Example Commons',
+          price: r.priceAmount === 499 && r.priceHigh === 1349,
+          beds: r.beds === 0 && r.bedsMax === 4,
+          perPerson: r.perPerson === true,
+          pin: Math.abs(r.lat - 40.46706) < 1e-6,
+          reviewsNotRead: !/Terrible office/.test(r.fullText),
+          noWarnings: a.flags.length === 0,
+        }),
+      },
+      {
+        // Zillow: the block around the heading has no price, so the whole
+        // listing is read (units list included).
+        file: 'zillow-header-only.html', host: 'www.zillow.com',
+        expect: (r) => ({
+          price: r.priceAmount === 649 && r.priceHigh === 1350,
+          beds: r.beds === 0 && r.bedsMax === 2,
+          notTheResults: !/Lumen|Launch/.test(r.fullText),
+        }),
+      },
+      {
+        // A post opened in a box over the news feed ("Example Management's Post").
+        file: 'facebook-post-dialog.html', host: 'www.facebook.com', path: '/',
+        expect: (r) => ({
+          listing: r.isListing === true,
+          title: r.title === 'House For Rent',
+          price: r.priceAmount === 1000 && r.pricePeriod === 'month',
+          place: r.location === 'Covington St, West Lafayette, IN 47906',
+          streetHint: r.hasStreetAddress === false && r.streetHint === 'Covington St',
+          beds: r.beds === 3,
+          lister: r.listerName === 'Example Management',
+          notTheFeed: !/couch/.test(r.fullText),
+        }),
+      },
+      {
+        // Downtown "Apartment B" whose text is a house by Mackey Arena.
+        file: 'craigslist-mismatch.html', host: 'www.craigslist.org',
+        expect: (r, a) => ({
+          pin: r.lat != null,
+          typeMismatch: a.flags.some((f) => f.id === 'type-mismatch'),
+          saleCopy: a.flags.some((f) => f.id === 'sale-listing-copy'),
+        }),
+      },
+      {
+        // A single house: stray "Studio" / "1 bed" labels do not beat its 3 beds.
+        file: 'single-home-labels.html', host: 'www.zillow.com',
+        expect: (r) => ({ beds: r.beds === 3, price: r.priceAmount === 1450 }),
+      },
+      {
+        // A shared Marketplace link (/commerce/listing/) is a listing, not a feed.
+        file: 'facebook.html', host: 'www.facebook.com', path: '/commerce/listing/123/',
+        expect: (r) => ({ listing: r.isListing === true, notAFeed: r.isFeed === false, price: r.priceAmount === 500 }),
+      },
+      {
+        file: 'results.html', host: 'www.zillow.com',
+        expect: (r) => ({ resultsPage: r.looksLikeResults === true, notAListing: r.isListing === false }),
+      },
+    ];
+
+    const out = document.getElementById('out');
+    const NOW = new Date('2026-11-16T12:00:00Z');
+    const src = btdExtractListing.toString();
+    let failures = 0;
+
+    function load(file) {
+      return new Promise((resolve) => {
+        const f = document.createElement('iframe');
+        f.onload = () => resolve(f);
+        f.src = 'fixtures/' + file;
+        document.body.appendChild(f);
+      });
+    }
+
+    (async () => {
+      for (const c of CASES) {
+        const frame = await load(c.file);
+        frame.style.height = '600px'; // give it a layout so elements are "visible"
+        const w = frame.contentWindow;
+        const fakeLocation = { hostname: c.host, href: 'https://' + c.host + (c.path || '/listing') };
+        // Built in the frame's realm so document/window are the fixture's.
+        const run = new w.Function('location', 'return (' + src + ')();');
+        const r = await run(fakeLocation);
+        const a = BTD.analyze(r, NOW);
+        const checks = c.expect(r, a);
+        const bad = Object.entries(checks).filter(([, ok]) => !ok).map(([k]) => k);
+        failures += bad.length;
+        const h = document.createElement('h2');
+        h.className = bad.length ? 'fail' : 'pass';
+        h.textContent = (bad.length ? 'FAIL ' : 'PASS ') + c.file + (bad.length ? ' — ' + bad.join(', ') : '');
+        const pre = document.createElement('pre');
+        pre.textContent = JSON.stringify({ result: r, flags: a.flags.map((f) => f.id), stars: a.stars }, null, 2);
+        out.append(h, pre);
+        frame.style.height = '0';
+      }
+      const total = document.createElement('h2');
+      total.id = 'total';
+      total.className = failures ? 'fail' : 'pass';
+      total.textContent = failures ? failures + ' check(s) failed' : 'All extractor checks passed';
+      out.prepend(total);
+      document.title = failures ? 'FAIL' : 'PASS';
+    })();
+  </script>
+</body>
+</html>

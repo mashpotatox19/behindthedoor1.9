@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>BehindTheDoor popup preview</title>
+  <style>
+    body { font: 14px/1.4 system-ui, sans-serif; margin: 16px; background: #e9e9ef; }
+    .grid { display: flex; flex-wrap: wrap; gap: 16px; align-items: flex-start; }
+    figure { margin: 0; }
+    figcaption { font-weight: 600; margin-bottom: 4px; }
+    iframe.popup { width: 380px; height: 900px; border: 1px solid #999; background: #fff; }
+    iframe.page { position: absolute; left: -9999px; width: 900px; height: 600px; }
+  </style>
+</head>
+<body>
+  <h1>Popup preview</h1>
+  <p>Serve the repository root (<code>python3 -m http.server 8765 --bind 127.0.0.1</code>) and open
+     <code>/tests/popup-preview.html</code>. Each frame is the real popup, reading a fixture page through a stand-in
+     for Chrome's extension API. County records are fetched live. Add <code>?only=property-site.html</code> to show one.</p>
+  <div class="grid" id="grid"></div>
+  <script>
+    const CASES = [
+      ['zillow-overlay.html', 'www.zillow.com'],
+      ['apartments-building.html', 'www.apartments.com'],
+      ['property-site.html', 'www.station21wl.com'],
+      ['facebook-room.html', 'www.facebook.com', '/marketplace/item/456/'],
+      ['facebook.html', 'www.facebook.com', '/marketplace/item/123/'],
+      ['craigslist.html', 'lafayette.craigslist.org'],
+      ['craigslist-biweekly.html', 'www.craigslist.org'],
+      ['craigslist-roommate.html', 'www.craigslist.org'],
+      ['zillow-pines.html', 'www.zillow.com'],
+      ['zillow-units.html', 'www.zillow.com'],
+      ['facebook-group-post.html', 'www.facebook.com', '/groups/123/posts/456/'],
+      ['facebook-group-feed.html', 'www.facebook.com', '/groups/123/'],
+      ['property-slogan.html', 'www.thelandingwl.com'],
+      ['airbnb.html', 'www.airbnb.com'],
+      ['apartments-perbed.html', 'www.apartments.com'],
+      ['facebook-post-dialog.html', 'www.facebook.com', '/'],
+      ['craigslist-mismatch.html', 'www.craigslist.org'],
+      ['zillow-header-only.html', 'www.zillow.com'],
+      ['generic.html', 'www.maplecourt.example'],
+      ['results.html', 'www.zillow.com'],
+    ];
+    const only = new URLSearchParams(location.search).get('only');
+
+    function loadFixture(file) {
+      return new Promise((resolve) => {
+        const f = document.createElement('iframe');
+        f.className = 'page';
+        f.onload = () => resolve(f);
+        f.src = 'fixtures/' + file;
+        document.body.appendChild(f);
+      });
+    }
+
+    // A stand-in for the parts of chrome.* the popup uses.
+    function fakeChrome(file, host, path) {
+      const href = 'https://' + host + (path || '/listing');
+      return {
+        runtime: { getManifest: () => ({ version: 'preview' }) },
+        tabs: {
+          query: async () => [{ id: 1, url: href }],
+          create: ({ url }) => window.open(url, '_blank', 'noopener'),
+        },
+        scripting: {
+          executeScript: async ({ func }) => {
+            const page = await loadFixture(file);
+            const w = page.contentWindow;
+            const run = new w.Function('location', 'return (' + func.toString() + ')();');
+            const result = await run({ hostname: host, href });
+            return [{ result }];
+          },
+        },
+      };
+    }
+
+    (async () => {
+      const html = await (await fetch('../popup.html', { cache: 'no-store' })).text();
+      const grid = document.getElementById('grid');
+      for (const [file, host, path] of CASES) {
+        if (only && only !== file) continue;
+        const fig = document.createElement('figure');
+        const cap = document.createElement('figcaption');
+        cap.textContent = file + ' (' + host + ')';
+        const frame = document.createElement('iframe');
+        frame.className = 'popup';
+        frame.title = file;
+        // The stub is installed before the popup's scripts run.
+        window['__chrome_' + grid.children.length] = fakeChrome(file, host, path);
+        const key = '__chrome_' + grid.children.length;
+        frame.srcdoc = html
+          // The stand-in for chrome.* goes in before the popup's scripts.
+          .replace('<script src="src/analyzer.js">', `<script>window.chrome = parent['${key}'];<\/script><script src="src/analyzer.js">`)
+          // Point the popup's own files at the repository root (a <base> tag
+          // would come too late for the browser's early fetches).
+          .replace(/(src|href)="(?!https?:|#|data:|\/)/g, '$1="../');
+        fig.append(cap, frame);
+        grid.appendChild(fig);
+      }
+    })();
+  </script>
+</body>
+</html>

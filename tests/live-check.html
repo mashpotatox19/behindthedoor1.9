@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>BehindTheDoor live-page check</title>
+  <style>
+    body { font: 13px/1.4 system-ui, sans-serif; margin: 16px; }
+    iframe { position: absolute; left: -9999px; width: 1100px; height: 800px; }
+    table { border-collapse: collapse; }
+    td, th { border: 1px solid #ccc; padding: 4px 6px; vertical-align: top; text-align: left; max-width: 280px; }
+  </style>
+</head>
+<body>
+  <h1>Real pages, read by the current code</h1>
+  <p>Saves of real listings live in <code>tests/live-snapshots/</code>, which git ignores (they are other people's
+     listings). List them in <code>tests/live-snapshots/index.json</code> as <code>[["file.html", "host"], ...]</code>.
+     This page only reports what the reader and the rules make of them; nothing is checked automatically.</p>
+  <div id="out"></div>
+  <script src="../src/extractor.js"></script>
+  <script src="../src/analyzer.js"></script>
+  <script src="../src/area.js"></script>
+  <script>
+    (async () => {
+      const out = document.getElementById('out');
+      let list = [];
+      try {
+        list = await (await fetch('live-snapshots/index.json', { cache: 'no-store' })).json();
+      } catch (e) {
+        out.textContent = 'No tests/live-snapshots/index.json.';
+        return;
+      }
+      const rows = [];
+      for (const [file, host] of list) {
+        const f = document.createElement('iframe');
+        await new Promise((res) => { f.onload = res; f.src = 'live-snapshots/' + file; document.body.appendChild(f); });
+        const run = new f.contentWindow.Function('location', 'return (' + btdExtractListing.toString() + ')();');
+        const r = await run({ hostname: host, href: 'https://' + host + '/' });
+        const area = BTD_AREA.areaFor(r.location);
+        r.rent = area ? BTD_AREA.compareRent(r, area) : null;
+        const a = BTD.analyze(r);
+        rows.push({ file, title: r.title, price: r.priceText + (r.perPerson ? ' (per person)' : '') + (r.isRoom ? ' (room)' : ''),
+          place: r.location + (r.hasStreetAddress ? '' : ' [no street]'), beds: r.beds + (r.bedsMax ? '–' + r.bedsMax : ''),
+          pin: r.lat != null ? r.lat.toFixed(4) + ',' + r.lon.toFixed(4) : '', rent: r.rent ? r.rent.verdict + ' ' + r.rent.ratio : '—',
+          stars: a.stars, flags: a.flags.map((x) => x.id).join(', '), isListing: r.isListing });
+        f.remove();
+      }
+      const table = document.createElement('table');
+      const keys = Object.keys(rows[0] || {});
+      table.innerHTML = '<tr>' + keys.map((k) => '<th>' + k + '</th>').join('') + '</tr>';
+      for (const row of rows) {
+        const tr = document.createElement('tr');
+        for (const k of keys) { const td = document.createElement('td'); td.textContent = String(row[k]); tr.appendChild(td); }
+        table.appendChild(tr);
+      }
+      out.appendChild(table);
+      window.__rows = rows;
+      document.title = 'DONE';
+    })();
+  </script>
+</body>
+</html>
