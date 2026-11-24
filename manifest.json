@@ -1,0 +1,26 @@
+{
+  "manifest_version": 3,
+  "name": "BehindTheDoor — Rental Scam Checker",
+  "short_name": "BehindTheDoor",
+  "version": "1.9.0",
+  "description": "Checks rental listings for scam signs, who owns the address, whether the rent is normal, and the distance to campus.",
+  "minimum_chrome_version": "105",
+  "permissions": ["activeTab", "scripting"],
+  "content_security_policy": {
+    "extension_pages": "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; connect-src https://maps.tippecanoe.in.gov; base-uri 'none'; form-action 'none'"
+  },
+  "action": {
+    "default_title": "BehindTheDoor — check this rental listing",
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "icons/icon-16.png",
+      "32": "icons/icon-32.png"
+    }
+  },
+  "icons": {
+    "16": "icons/icon-16.png",
+    "32": "icons/icon-32.png",
+    "48": "icons/icon-48.png",
+    "128": "icons/icon-128.png"
+  }
+}

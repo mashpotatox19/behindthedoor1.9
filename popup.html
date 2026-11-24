@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <title>BehindTheDoor</title>
+    <link rel="stylesheet" href="styles.css">
+  </head>
+
+  <body>
+    <header class="app-header">
+      <img class="logo" src="icons/icon-48.png" width="32" height="32" alt="">
+      <div class="brand">
+        <h1>BehindTheDoor</h1>
+        <p>Rental listing scam checker</p>
+      </div>
+      <button id="rescan" class="icon-btn" type="button" title="Scan this tab again" aria-label="Scan this tab again">
+        <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
+          <path d="M20 12a8 8 0 1 1-2.34-5.66M20 4v5h-5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+      </button>
+    </header>
+
+    <main>
+      <!-- Loading -->
+      <section id="view-loading" class="view state" hidden>
+        <div class="spinner" aria-hidden="true"></div>
+        <p class="state-title">Reading the listing…</p>
+      </section>
+
+      <!-- Not on a listing / error -->
+      <section id="view-empty" class="view" hidden>
+        <div class="state">
+          <div class="state-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" width="28" height="28">
+              <path d="M3 11.5 12 4l9 7.5M5.5 10v9.5h13V10" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+              <path d="m9.5 14.5 2 2 3.5-4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+          </div>
+          <p class="state-title" id="empty-title">Open a rental listing</p>
+          <p class="state-text" id="empty-text"></p>
+          <p class="state-detail" id="empty-detail"></p>
+          <div class="actions" id="site-links">
+            <button class="btn" type="button" data-site="zillow">Zillow</button>
+            <button class="btn" type="button" data-site="apartments">Apartments.com</button>
+            <button class="btn" type="button" data-site="craigslist">Craigslist</button>
+            <button class="btn" type="button" data-site="facebook">Marketplace</button>
+          </div>
+          <div class="actions">
+            <button id="show-demo" class="btn" type="button">View demo report</button>
+          </div>
+        </div>
+
+        <div class="card paste">
+          <h2><label for="paste-text">Or paste listing text</label></h2>
+          <textarea id="paste-text" rows="4" placeholder="Paste a rental description or a message from a landlord…"></textarea>
+          <button id="scan-paste" class="btn primary block" type="button" disabled>Check this text</button>
+        </div>
+      </section>
+
+      <!-- Report -->
+      <section id="view-report" class="view" hidden>
+        <div id="demo-banner" class="banner" hidden>
+          <strong>Demo data.</strong> This is not a real listing and nothing was scanned.
+        </div>
+
+        <div class="card property">
+          <h2 id="listing-eyebrow">Listing</h2>
+          <p class="listing-title" id="listing-title"></p>
+          <p class="listing-sub" id="listing-sub"></p>
+          <p class="listing-meta" id="listing-meta"></p>
+          <ul class="chips" id="listing-details" aria-label="About this listing"></ul>
+          <a class="btn block" id="maps-link" href="#" target="_blank" rel="noopener noreferrer" hidden>See it on Google Maps</a>
+        </div>
+
+        <div class="card result" id="result-card">
+          <h2>At a glance</h2>
+          <div class="rating">
+            <div class="stars" id="stars" role="img"></div>
+            <div class="rating-number"><span id="stars-value"></span><small> / 5</small></div>
+          </div>
+          <p class="level"><span class="pill" id="level-pill"></span></p>
+          <p class="summary" id="summary"></p>
+          <ul class="glance" id="glance" aria-label="Summary"></ul>
+          <p class="notice" id="limited-notice" hidden></p>
+        </div>
+
+        <div class="warnings" id="warnings">
+          <h2 id="flags-heading">Things to check</h2>
+          <div id="flags"></div>
+          <details class="card checked" id="checked">
+            <summary id="checked-summary">What the scam check looked for</summary>
+            <ul class="checked-list" id="checked-list"></ul>
+          </details>
+        </div>
+
+        <div class="card area" id="area-card" hidden>
+          <h2>Rent and location</h2>
+          <div class="area-row" id="rent-row" hidden>
+            <p class="area-verdict" id="rent-verdict"></p>
+            <p class="area-text" id="rent-text"></p>
+          </div>
+          <p class="area-ref" id="rent-ref"></p>
+          <div class="area-row" id="campus-row" hidden>
+            <p class="area-verdict neutral" id="campus-verdict"></p>
+            <p class="area-text" id="campus-text"></p>
+            <a class="btn block" id="campus-link" href="#" target="_blank" rel="noopener noreferrer">Bus directions to campus</a>
+          </div>
+          <div class="area-row" id="nearby-row" hidden>
+            <p class="area-verdict neutral">Around the building</p>
+            <dl class="records-facts nearby-facts">
+              <dt>Bus stop</dt><dd id="nearby-bus"></dd>
+              <dt>Supermarket</dt><dd id="nearby-grocery"></dd>
+              <dt id="nearby-flood-label" hidden>Flood map</dt><dd id="nearby-flood" hidden></dd>
+            </dl>
+            <p class="records-note" id="nearby-flood-note" hidden></p>
+            <p class="area-ref" id="nearby-ref"></p>
+          </div>
+          <div class="area-row" id="explore-row" hidden>
+            <p class="area-verdict neutral">Explore the area</p>
+            <div class="link-chips" id="explore-links"></div>
+          </div>
+        </div>
+
+        <div class="card records" id="records-card" hidden>
+          <h2>Who owns it</h2>
+          <p class="records-status" id="records-status"></p>
+          <dl class="records-facts" id="records-facts" hidden>
+            <dt>Owner on record</dt><dd id="records-owner"></dd>
+            <dt>County parcel</dt><dd id="records-parcel"></dd>
+            <dt>Property type</dt><dd id="records-class"></dd>
+            <dt id="records-since-label">Owner since</dt><dd id="records-since"></dd>
+            <dt id="records-built-label" hidden>Built</dt><dd id="records-built" hidden></dd>
+            <dt>Listed by</dt><dd id="records-lister"></dd>
+          </dl>
+          <p class="records-note" id="records-note"></p>
+          <div class="link-chips" id="reviews-links" hidden></div>
+          <a class="btn block" id="records-link" href="#" target="_blank" rel="noopener noreferrer" hidden>Open the county map</a>
+        </div>
+
+        <div class="card steps" id="steps-card" hidden>
+          <h2>Before you pay or sign</h2>
+          <ol class="steps-list">
+            <li>See the inside in person, or on a live video call where they walk you through it.</li>
+            <li>Call the owner or leasing office on a number you found yourself, and ask if this listing is theirs.
+              <a class="inline-link" id="office-link" href="#" target="_blank" rel="noopener noreferrer" hidden>Find the official website</a></li>
+            <li>Pay through a lease portal, check or card. Never by wire, gift card, crypto, or Zelle to someone you have not met.</li>
+            <li>Read the whole lease, get every promise in writing, and take dated photos when you move in.</li>
+          </ol>
+          <div class="help" id="help" hidden>
+            <p class="help-title">Help for Purdue students</p>
+            <div class="help-links" id="help-links"></div>
+          </div>
+        </div>
+
+        <div class="card photos" id="photos-card" hidden>
+          <h2>Listing photos</h2>
+          <p>Copied photos are a common sign of a fake listing. See whether this one appears elsewhere online.</p>
+          <button class="btn block" id="photo-search" type="button">Search for this photo</button>
+          <p class="fineprint-note">Opens Google Lens and sends it the photo's web address.</p>
+        </div>
+
+        <div class="card limits">
+          <h2>Good to know</h2>
+          <p id="not-checked">Not checked: other ads by the same person, and text that is not in English. Rent comparison, distance to campus and owner lookup cover the Lafayette–West Lafayette area.</p>
+          <p>
+            Think it is a scam? Report it to the site and to the FTC at
+            <a id="report-ftc" href="https://reportfraud.ftc.gov/" target="_blank" rel="noopener noreferrer">ReportFraud.ftc.gov</a>.
+            If you already paid, call your bank or payment app right away.
+          </p>
+        </div>
+
+        <button id="back" class="btn block" type="button" hidden>Back</button>
+      </section>
+    </main>
+
+    <footer>
+      <p>
+        <strong>Reminder:</strong> This is a quick check, not a guarantee. It cannot tell you for sure
+        whether a listing is real. Check the landlord and see the property before sending money.
+      </p>
+      <p class="fineprint">
+        <span id="version"></span>
+        <span aria-hidden="true">·</span>
+        <a id="contact" href="https://reportfraud.ftc.gov/" target="_blank" rel="noopener noreferrer">Report a scam</a>
+      </p>
+    </footer>
+
+    <script src="src/analyzer.js"></script>
+    <script src="src/records.js"></script>
+    <script src="src/places-data.js"></script>
+    <script src="src/area.js"></script>
+    <script src="src/extractor.js"></script>
+    <script src="popup.js"></script>
+  </body>
+</html>
